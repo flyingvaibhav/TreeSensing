@@ -1,0 +1,34 @@
+# Core ML + CV
+torch
+torchvision
+ultralytics
+opencv-python
+numpy
+pandas
+matplotlib
+scikit-learn
+tqdm
+
+# GIS + Image handling
+rasterio
+shapely
+geopandas
+Pillow
+pyproj
+
+# Backend
+fastapi
+uvicorn
+pydantic
+
+# Optional (DB & async)
+sqlalchemy
+psycopg2-binary
+redis
+celery
+
+# Jupyter + Notebook
+jupyter
+notebook
+kagglehub
+albumentations
