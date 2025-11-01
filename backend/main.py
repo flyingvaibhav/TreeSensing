@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
 from datetime import datetime
 from dotenv import load_dotenv
 from pathlib import Path
@@ -26,8 +27,17 @@ app.add_middleware(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-client = MongoClient(MONGO_URI)
+# Fail fast if DB is unreachable (avoid long hangs that cause frontend timeouts)
+client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
 db = client["tree_sense"]
+
+def db_available() -> bool:
+    try:
+        # Cheap ping
+        db.command("ping")
+        return True
+    except Exception:
+        return False
 
 # Load YOLO model
 # Try multiple possible model paths
@@ -101,12 +111,8 @@ async def detect_trees(file: UploadFile = File(...)):
             "timestamp": datetime.now().isoformat()
         }
         
-        # Save to MongoDB
-        result = db.detections.insert_one(detection_data)
-        
-        # Create response data (without _id, add string id)
+        # Save to MongoDB (non-fatal if DB is down)
         response_data = {
-            "id": str(result.inserted_id),
             "filename": detection_data["filename"],
             "tree_count": detection_data["tree_count"],
             "avg_confidence": detection_data["avg_confidence"],
@@ -114,6 +120,17 @@ async def detect_trees(file: UploadFile = File(...)):
             "image_size": detection_data["image_size"],
             "timestamp": detection_data["timestamp"]
         }
+        try:
+            if db_available():
+                result = db.detections.insert_one(detection_data)
+                response_data["id"] = str(result.inserted_id)
+                response_data["db_saved"] = True
+            else:
+                response_data["db_saved"] = False
+        except PyMongoError as e:
+            # Log and proceed; still return inference result quickly
+            print(f"⚠️ MongoDB save failed: {e}")
+            response_data["db_saved"] = False
         
         return {
             "success": True,
@@ -131,16 +148,26 @@ async def detect_trees(file: UploadFile = File(...)):
 def get_detections(limit: int = 50):
     """Fetch all detection records"""
     try:
+        if not db_available():
+            # Return 200 with empty data and a message to avoid frontend hard-fail
+            return {
+                "success": True,
+                "count": 0,
+                "data": [],
+                "message": "Database not available"
+            }
+
         detections = list(
             db.detections.find()
             .sort("timestamp", -1)
             .limit(limit)
         )
-        
+
         # Convert ObjectId to string for JSON serialization
         for detection in detections:
-            detection["id"] = str(detection.pop("_id"))
-        
+            if "_id" in detection:
+                detection["id"] = str(detection.pop("_id"))
+
         return {
             "success": True,
             "count": len(detections),
@@ -154,6 +181,9 @@ def get_detections(limit: int = 50):
 def get_detection(detection_id: str):
     """Fetch a specific detection record"""
     try:
+        if not db_available():
+            raise HTTPException(503, "Database not available")
+
         from bson import ObjectId
         detection = db.detections.find_one({"_id": ObjectId(detection_id)})
         
@@ -178,5 +208,5 @@ def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "database_connected": client.server_info() is not None
+        "database_connected": db_available()
     }
