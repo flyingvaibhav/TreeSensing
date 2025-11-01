@@ -401,7 +401,6 @@ Dataset is licensed under **CC BY 4.0** (Roboflow)
 
 - **Repository**: [github.com/flyingvaibhav/TreeSensing](https://github.com/flyingvaibhav/TreeSensing)
 - **Issues**: Report bugs and feature requests via GitHub Issues
-- **Website**: [treesense.vipulchaturvedi.com](https://treesense.vipulchaturvedi.com/predict)
 
 ---
 
